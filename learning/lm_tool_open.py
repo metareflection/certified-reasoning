@@ -41,6 +41,7 @@ bnb_config = BitsAndBytesConfig(
 models = {}
 tokenizers = {}
 def get_model(model):
+    global models
     if model in models:
         m = models[model]
     else:
@@ -54,6 +55,7 @@ def get_model(model):
         models[model] = m
     return m
 def get_tokenizer(model):
+    global tokenizers
     if model in tokenizers:
         t = tokenizers[model]
     else:
@@ -62,7 +64,6 @@ def get_tokenizer(model):
         tokenizers[model] = t
     return t
 def completion(model, messages, temperature=1.0, max_tokens=100, stop=None, logit_bias=None):
-    global models
     m = get_model(model)
     t = get_tokenizer(model)
     prompt = "\n\n".join([f"{message['role']}: {message['content']}" for message in messages])
