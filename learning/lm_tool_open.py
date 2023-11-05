@@ -844,6 +844,8 @@ def evaluate_reasoner(results_path: str,
             error = None
             correct = (prediction == p.test_example.answer)
             print(key, 'success?', correct)
+            if not correct:
+                print(f"Expected: {p.test_example.answer}. Got: {prediction}.")
         except (ValueError, RuntimeError) as e:
             print('Error:', e)
             correct = False
