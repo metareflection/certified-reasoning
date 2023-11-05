@@ -24,7 +24,7 @@ import domain
 import util
 
 from completion_engine import CompletionEngine
-from language_model import OpenAIModel, LanguageModel, download_or_use_cached, filter_maximal_tokens
+from language_model import HuggingFaceModel, LanguageModel, download_or_use_cached, filter_maximal_tokens
 from synchromesh import predict_constrained
 
 
@@ -40,12 +40,9 @@ bnb_config = BitsAndBytesConfig(
 
 models = {}
 tokenizers = {}
-def completion(model, messages, temperature=1.0, max_tokens=100, stop=None, logit_bias=None):
-    global models
-    global tokenizers
+def get_model(model):
     if model in models:
         m = models[model]
-        t = tokenizers[model]
     else:
         m = AutoModelForCausalLM.from_pretrained(
             model,
@@ -54,10 +51,20 @@ def completion(model, messages, temperature=1.0, max_tokens=100, stop=None, logi
             trust_remote_code=True,
             use_auth_token=True
         )
+        models[model] = m
+    return m
+def get_tokenizer(model):
+    if model in tokenizers:
+        t = tokenizers[model]
+    else:
         t = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
         t.pad_token = t.eos_token
-        models[model] = m
         tokenizers[model] = t
+    return t
+def completion(model, messages, temperature=1.0, max_tokens=100, stop=None, logit_bias=None):
+    global models
+    m = get_model(model)
+    t = get_tokenizer(model)
     prompt = "\n\n".join([f"{message['role']}: {message['content']}" for message in messages])
     model_input = t(prompt, return_tensors="pt").to("cuda")
     m.eval()
@@ -716,12 +723,10 @@ class PeanoLMReasoner(NaturalLanguageReasoner):
     def predict_answer(self, problem: PrOntoQAProblem) -> bool:
         prompt = f'{self._prompt}\n{self._format_problem(problem)}'
 
-        lm = OpenAIModel(self._model,
-                         prompt,
-                         temperature=self._temperature,
-                         before_prediction_hook=rate_limiter.wait,
-                         cache_path='.openai_cache'
-                         )
+        lm = HuggingFaceModel(get_model(self._model),
+                              prompt,
+                              temperature=self._temperature,
+                              tokenizer=get_tokenizer(self._model))
 
         response = predict_constrained(self._completion_engine, lm, batch_size=800,
                                        stop_tokens=[self._separator], max_violations=50)
@@ -928,7 +933,7 @@ def run_prontoqa_experiments(max_problems=120):
         fol_domain.start_derivation())
 
     reasoners = [
-        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
+        #OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
         PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
     ]
 
