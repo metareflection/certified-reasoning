@@ -899,8 +899,8 @@ def run_syllogism_experiments(max_problems=120):
     )
 
     reasoners = [
-        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
-        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
+        #OpenAIChatModelReasoner('meta-llama/Llama-2-13b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-13b-hf'),
     ]
 
     for r in reasoners:
@@ -934,8 +934,8 @@ def run_prontoqa_experiments(max_problems=120):
         fol_domain.start_derivation())
 
     reasoners = [
-        #OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
-        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
+        #OpenAIChatModelReasoner('meta-llama/Llama-2-13b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-13b-hf'),
     ]
 
     for r in reasoners:
@@ -985,8 +985,8 @@ def run_deontic_logic_experiments():
         fol_domain.start_derivation())
 
     reasoners = [
-        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
-        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
+        #OpenAIChatModelReasoner('meta-llama/Llama-2-13b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-13b-hf'),
     ]
 
     for r in reasoners:
@@ -995,6 +995,6 @@ def run_deontic_logic_experiments():
 
 
 if __name__ == '__main__':
-    run_prontoqa_experiments()
+    #run_prontoqa_experiments()
     run_syllogism_experiments()
-    run_deontic_logic_experiments()
+    #run_deontic_logic_experiments()
