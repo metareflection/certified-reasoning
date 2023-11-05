@@ -16,7 +16,7 @@ import shelve
 import itertools
 import os
 
-import openai
+#import openai
 import transformers
 import tiktoken
 
@@ -30,6 +30,42 @@ from synchromesh import predict_constrained
 
 from completion import PeanoCompletionEngine
 
+import torch
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig, AutoTokenizer
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.float16,
+)
+
+models = {}
+tokenizers = {}
+def completion(model, messages, temperature=1.0, max_tokens=100, stop=None, logit_bias=None):
+    global models
+    global tokenizers
+    if model in models:
+        m = models[model]
+        t = tokenizers[model]
+    else:
+        m = AutoModelForCausalLM.from_pretrained(
+            model,
+            quantization_config=bnb_config,
+            device_map="auto",
+            trust_remote_code=True,
+            use_auth_token=True
+        )
+        t = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+        t.pad_token = t.eos_token
+        models[model] = m
+        tokenizers[model] = t
+    prompt = "\n\n".join([f"{message['role']}: {message['content']}" for message in messages])
+    model_input = t(prompt, return_tensors="pt").to("cuda")
+    m.eval()
+    ts = []
+    with torch.no_grad():
+        rs = m.generate(**model_input, temperature=temperature, max_new_tokens=max_tokens)
+        ts = [t.decode(r, skip_special_tokens=True) for r in rs]
+    return {'choices': [{'message': {'content': t } } for t in ts] }
 
 def make_chat_request_key(model, prompt, best_of,
                           max_tokens, temperature, valid_tokens):
@@ -52,8 +88,8 @@ class OpenAIChatModel(LanguageModel):
                  ) -> None:
         super().__init__()
 
-        if api_key:
-            openai.api_key = api_key
+        #if api_key:
+        #    openai.api_key = api_key
 
         self.prompt_template = prompt_template
         self.model = model
@@ -145,7 +181,7 @@ class OpenAIChatModel(LanguageModel):
         if request_key in self._cache:
             return self._cache[request_key]
 
-        response = openai.ChatCompletion.create(model=self.model, messages=prompt, n=n,
+        response = completion(model=self.model, messages=prompt, n=n,
                                                 temperature=temperature, top_p=self.top_p,
                                                 max_tokens=1, logit_bias=valid_bias)
         prediction = [r['message']['content'] for r in response['choices']]
@@ -178,7 +214,7 @@ class OpenAIChatModel(LanguageModel):
         if request_key in self._cache:
             return self._cache[request_key]
 
-        response = openai.ChatCompletion.create(model=self.model, messages=prompt,
+        response = completion(model=self.model, messages=prompt,
                                                 temperature=self.temperature, top_p=self.top_p,
                                                 max_tokens=max_tokens, stop=stop)
 
@@ -552,13 +588,13 @@ class OpenAILanguageModelReasoner(NaturalLanguageReasoner):
 
         rate_limiter.wait()
 
-        response = openai.Completion.create(model=self._model,
+        response = completion(model=self._model,
                                             prompt=prompt,
                                             temperature=self._temperature,
                                             max_tokens=200,
                                             stop=self._separator)
 
-        response_str = response.choices[0].text
+        response_str = response['choices'][0].text
         print(response_str)
         answer = re.search('Answer: (.+)$', response_str)
         answer = answer and answer.groups()[-1].strip()
@@ -626,12 +662,12 @@ class OpenAIChatModelReasoner(NaturalLanguageReasoner):
         prompt += test
 
         rate_limiter.wait()
-        response = openai.ChatCompletion.create(model=self._model,
+        response = completion(model=self._model,
                                                 messages=prompt,
                                                 max_tokens=500,
                                                 stop=self._separator)
 
-        response_str = response.choices[0]['message']['content']
+        response_str = response['choices'][0]['message']['content']
         answer = re.search('Answer: (.+)$', response_str)
         return answer and answer.groups()[-1].strip(), response_str
 
@@ -803,24 +839,17 @@ def evaluate_reasoner(results_path: str,
             continue
 
         try:
-            while True:
-                try:
-                    prediction, reasoning = reasoner.predict_answer(p)
-                    break
-                except (openai.error.RateLimitError, openai.error.APIError):
-                    print('Rate limited. Waiting...')
-                    import time; time.sleep(10)
-                    pass
+            prediction, reasoning = reasoner.predict_answer(p)
 
             error = None
             correct = (prediction == p.test_example.answer)
             print(key, 'success?', correct)
-        except (ValueError, openai.error.InvalidRequestError, RuntimeError) as e:
+        except (ValueError, RuntimeError) as e:
             print('Error:', e)
             correct = False
             error = str(e)
             prediction, reasoning = None, None
-        except BaseException as e:
+        except Exception as e:
             if type(e).__name__ == 'PanicException':
                 print('Peano panicked.')
                 correct = False
@@ -862,10 +891,8 @@ def run_syllogism_experiments(max_problems=120):
     )
 
     reasoners = [
-        OpenAILanguageModelReasoner('text-davinci-003'),
-        OpenAIChatModelReasoner('gpt-3.5-turbo'),
-        PeanoLMReasoner(fol_completion_engine, 'text-davinci-003'),
-        PeanoChatLMReasoner(fol_completion_engine, 'gpt-3.5-turbo'),
+        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
     ]
 
     for r in reasoners:
@@ -899,12 +926,8 @@ def run_prontoqa_experiments(max_problems=120):
         fol_domain.start_derivation())
 
     reasoners = [
-        OpenAILanguageModelReasoner('text-davinci-003'),
-        OpenAIChatModelReasoner('gpt-3.5-turbo'),
-        PeanoLMReasoner(fol_completion_engine,
-                        'text-davinci-003'),
-        PeanoChatLMReasoner(fol_completion_engine,
-                            'gpt-3.5-turbo')
+        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
     ]
 
     for r in reasoners:
@@ -954,12 +977,8 @@ def run_deontic_logic_experiments():
         fol_domain.start_derivation())
 
     reasoners = [
-        OpenAIChatModelReasoner('gpt-3.5-turbo'),
-        OpenAILanguageModelReasoner('text-davinci-003'),
-        PeanoChatLMReasoner(fol_completion_engine,
-                            'gpt-3.5-turbo'),
-        PeanoLMReasoner(fol_completion_engine,
-                        'text-davinci-003'),
+        OpenAIChatModelReasoner('meta-llama/Llama-2-7b-hf'),
+        PeanoLMReasoner(fol_completion_engine, 'meta-llama/Llama-2-7b-hf'),
     ]
 
     for r in reasoners:
